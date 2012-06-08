@@ -21,24 +21,32 @@
  * MA 02111-1307 USA
  */
 
-#ifndef __CONFIG_H
-#define __CONFIG_H
+#include <common.h>
+#include <asm/io.h>
+#include <asm/arch/tegra2.h>
+#include <asm/arch/gpio.h>
 
-#include <asm/sizes.h>
-#include "tegra2-common.h"
+/*
+ * Routine: gpio_config_uart
+ * Description: Force GPIO_PI3 low on Seaboard so UART4 works.
+ */
+void gpio_config_uart(void)
+{
+	int gp = GPIO_PI3;
+	struct gpio_ctlr *gpio = (struct gpio_ctlr *)NV_PA_GPIO_BASE;
+	struct gpio_ctlr_bank *bank = &gpio->gpio_bank[GPIO_BANK(gp)];
+	u32 val;
 
-/* High-level configuration options */
-#define TEGRA2_SYSMEM		"mem=384M@0M nvmem=128M@384M mem=512M@512M"
-#define V_PROMPT		"Tegra2 (SeaBoard) # "
-#define CONFIG_TEGRA2_BOARD_STRING	"NVIDIA Seaboard"
+	/* Enable UART via GPIO_PI3 (port 8, bit 3) so serial console works */
+	val = readl(&bank->gpio_config[GPIO_PORT(gp)]);
+	val |= 1 << GPIO_BIT(gp);
+	writel(val, &bank->gpio_config[GPIO_PORT(gp)]);
 
-/* Board-specific serial config */
-#define CONFIG_SERIAL_MULTI
-#define CONFIG_TEGRA2_ENABLE_UARTD
-#define CONFIG_SYS_NS16550_COM1		NV_PA_APB_UARTD_BASE
+	val = readl(&bank->gpio_out[GPIO_PORT(gp)]);
+	val &= ~(1 << GPIO_BIT(gp));
+	writel(val, &bank->gpio_out[GPIO_PORT(gp)]);
 
-#define CONFIG_MACH_TYPE		MACH_TYPE_SEABOARD
-#define CONFIG_SYS_BOARD_ODMDATA	0x300d8011 /* lp1, 1GB */
-
-#define CONFIG_BOARD_EARLY_INIT_F
-#endif /* __CONFIG_H */
+	val = readl(&bank->gpio_dir_out[GPIO_PORT(gp)]);
+	val |= 1 << GPIO_BIT(gp);
+	writel(val, &bank->gpio_dir_out[GPIO_PORT(gp)]);
+}
