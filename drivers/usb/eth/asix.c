@@ -1,5 +1,8 @@
 /*
  * Copyright (c) 2011 The Chromium OS Authors.
+ *
+ * Patched for AX88772B by Ant Micro <www.antmicro.com>
+ *
  * See file CREDITS for list of people who contributed to this
  * project.
  *
@@ -78,6 +81,14 @@
 /* AX88772 & AX88178 RX_CTL values */
 #define AX_RX_CTL_SO			0x0080
 #define AX_RX_CTL_AB			0x0008
+
+/* AX88772B RX_CTL values */
+#define AX_RX_CTL_START                  0x0080          /* Ethernet MAC start */
+#define AX_RX_CTL_AB                     0x0008          /* Accetp Brocadcast frames*/
+#define AX_RX_CTL_RH1M                   0x0100          /* Enable RX-Header mode 0 */
+#define AX_RX_CTL_RH2M                   0x0200          /* Enable IP header in receive buffer aligned on 32-bit aligment */
+#define AX_RX_HEADER_DEFAULT             (AX_RX_CTL_RH1M | AX_RX_CTL_RH2M)
+
 
 #define AX_DEFAULT_RX_CTL	\
 	(AX_RX_CTL_SO | AX_RX_CTL_AB)
@@ -356,6 +367,33 @@ static int asix_init(struct eth_device *eth, bd_t *bd)
 	rx_ctl = asix_read_rx_ctl(dev);
 	debug("RX_CTL is 0x%04x setting to 0x0000\n", rx_ctl);
 
+       if ((dev->pusb_dev->descriptor.idVendor == 0x0b95) && (dev->pusb_dev->descriptor.idProduct == 0x772b)) {
+                #define AX_CMD_READ_EEPROM 0x0B
+                #define AX_CMD_WRITE_NODE_ID 0x14
+               // read MAC from EEPROM
+                memset(buf, 0, ETH_ALEN);
+                int i,ret;
+               for (i = 0; i < (ETH_ALEN >> 1); i++) {
+                        if ((ret = asix_read_cmd (dev, AX_CMD_READ_EEPROM,
+                                                0x04 + i, 0, 2, (buf + i * 2))) < 0) {
+                                debug("read SROM address 04h failed: %d", ret);
+                                goto out_err;
+                        }
+                }
+                memcpy(eth->enetaddr, buf, ETH_ALEN);
+                debug("Read MAC %02x:%02x:%02x:%02x:%02x:%02x\n",
+                 eth->enetaddr[0], eth->enetaddr[1],
+                 eth->enetaddr[2], eth->enetaddr[3],
+                 eth->enetaddr[4], eth->enetaddr[5]);
+
+                if ((ret = asix_write_cmd (dev, AX_CMD_WRITE_NODE_ID,
+                        0, 0, ETH_ALEN, buf)) < 0) {
+                   debug("set MAC address failed: %d", ret);
+                   goto out_err;
+                }
+       }
+
+
 	/* Get the MAC address */
 	if (asix_read_cmd(dev, AX_CMD_READ_NODE_ID,
 				0, 0, ETH_ALEN, buf) < 0) {
@@ -393,8 +431,12 @@ static int asix_init(struct eth_device *eth, bd_t *bd)
 		goto out_err;
 	}
 
-	if (asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL) < 0)
-		goto out_err;
+
+       if ((dev->pusb_dev->descriptor.idVendor == 0x0b95) && (dev->pusb_dev->descriptor.idProduct == 0x772b)) {
+               if (asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL | AX_RX_HEADER_DEFAULT) < 0) goto out_err;
+       } else if (asix_write_rx_ctl(dev, AX_DEFAULT_RX_CTL) < 0)
+               goto out_err;
+
 
 	do {
 		link_detected = asix_mdio_read(dev, dev->phy_id, MII_BMSR) &
@@ -501,6 +543,8 @@ static int asix_recv(struct eth_device *eth)
 			return -1;
 		}
 
+                if ((dev->pusb_dev->descriptor.idVendor == 0x0b95) && (dev->pusb_dev->descriptor.idProduct == 0x772b)) buf_ptr += 2;
+
 		/* Notify net stack */
 		NetReceive(buf_ptr + sizeof(packet_len), packet_len);
 
@@ -542,6 +586,7 @@ static struct asix_dongle asix_dongles[] = {
 	{ 0x13b1, 0x0018 },	/* Linksys 200M v2.1 */
 	{ 0x1557, 0x7720 },	/* 0Q0 cable ethernet */
 	{ 0x2001, 0x3c05 },	/* DLink DUB-E100 H/W Ver B1 Alternate */
+        { 0x0b95, 0x772b },     /* ASIX 88772B */
 	{ 0x0000, 0x0000 }	/* END - Do not remove */
 };
 
@@ -583,17 +628,22 @@ int asix_eth_probe(struct usb_device *dev, unsigned int ifnum,
 	 * We are expecting a minimum of 3 endpoints - in, out (bulk), and
 	 * int. We will ignore any others.
 	 */
+        int ep_in_found = 0;
+        int ep_out_found = 0;
 	for (i = 0; i < iface_desc->bNumEndpoints; i++) {
 		/* is it an BULK endpoint? */
 		if ((iface->ep_desc[i].bmAttributes &
 		     USB_ENDPOINT_XFERTYPE_MASK) == USB_ENDPOINT_XFER_BULK) {
-			if (iface->ep_desc[i].bEndpointAddress & USB_DIR_IN)
-				ss->ep_in = iface->ep_desc[i].bEndpointAddress &
+			if (iface->ep_desc[i].bEndpointAddress & USB_DIR_IN) {
+				if (ep_in_found == 0) ss->ep_in = iface->ep_desc[i].bEndpointAddress &
 					USB_ENDPOINT_NUMBER_MASK;
-			else
-				ss->ep_out =
+				ep_in_found = 1;
+			} else {
+				if (ep_out_found == 0) ss->ep_out =
 					iface->ep_desc[i].bEndpointAddress &
 					USB_ENDPOINT_NUMBER_MASK;
+				ep_out_found = 1;
+			}
 		}
 
 		/* is it an interrupt endpoint? */

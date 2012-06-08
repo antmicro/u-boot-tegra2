@@ -158,7 +158,11 @@ struct clk_rst_ctlr {
 #define PLL_ENABLE		(1 << 30)
 #define PLL_BASE_OVRRIDE	(1 << 28)
 #define PLL_DIVP		(1 << 20)	/* post divider, b22:20 */
-#define PLL_DIVM		0x0C		/* input divider, b4:0 */
+#ifdef CONFIG_TEGRA_CLOCK_13MHZ
+	#define PLL_DIVM               0x0D     /* input divider, b4:0, for 12 Mhz */
+#else
+	#define PLL_DIVM               0x0C     /* input divider, b4:0, for 13 Mhz */
+#endif
 
 #define SWR_UARTD_RST		(1 << 1)
 #define CLK_ENB_UARTD		(1 << 1)

@@ -21,6 +21,7 @@
 * MA 02111-1307 USA
 */
 
+#include <common.h>
 #include "ap20.h"
 #include <asm/io.h>
 #include <asm/arch/tegra2.h>
@@ -28,7 +29,6 @@
 #include <asm/arch/pmc.h>
 #include <asm/arch/pinmux.h>
 #include <asm/arch/scu.h>
-#include <common.h>
 
 u32 s_first_boot = 1;
 
